@@ -6,7 +6,7 @@ import WalletBackupDialog from '../../components/wallet/WalletBackupDialog';
 import WalletBackupDialogContainer from './dialogs/WalletBackupDialogContainer';
 import WalletCreateDialogContainer from './dialogs/WalletCreateDialogContainer';
 import WalletRestoreDialogContainer from './dialogs/WalletRestoreDialogContainer';
-import WalletConnectDialog from '../../components/wallet/WalletConnectDialog';
+import LedgerConnectDialog from '../../components/wallet/LedgerConnectDialog';
 import WalletConnectDialogContainer from './dialogs/WalletConnectDialogContainer';
 import Layout from '../MainLayout';
 import type { InjectedProps } from '../../types/injectedPropsType';
@@ -58,7 +58,7 @@ export default class WalletAddPage extends Component<Props> {
       actions.walletMigration.initiateMigration.trigger();
 
     const onConnectWallet = () => {
-      actions.dialogs.open.trigger({ dialog: WalletConnectDialog });
+      actions.dialogs.open.trigger({ dialog: LedgerConnectDialog });
       stores.hardwareWallets.establishHardwareWalletConnection();
     };
 
@@ -77,7 +77,7 @@ export default class WalletAddPage extends Component<Props> {
       activeDialog = <WalletRestoreDialogContainer onClose={this.onClose} />;
     } else if (walletMigrationStep !== null) {
       activeDialog = <WalletImportDialogContainer onClose={this.onClose} />;
-    } else if (uiDialogs.isOpen(WalletConnectDialog)) {
+    } else if (uiDialogs.isOpen(LedgerConnectDialog)) {
       activeDialog = <WalletConnectDialogContainer onClose={this.onClose} />;
     }
 

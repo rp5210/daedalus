@@ -1,7 +1,7 @@
 // @flow
 import React, { Component } from 'react';
 import { observer, inject } from 'mobx-react';
-import WalletConnectDialog from '../../../components/wallet/WalletConnectDialog';
+import LedgerConnectDialog from '../../../components/wallet/LedgerConnectDialog';
 import type { InjectedStoresProps } from '../../../types/injectedPropsType';
 
 type Props = {
@@ -28,7 +28,7 @@ export default class WalletConnectDialogContainer extends Component<Props> {
     const { createHardwareWalletRequest } = wallets;
 
     return (
-      <WalletConnectDialog
+      <LedgerConnectDialog
         isSubmitting={createHardwareWalletRequest.isExecuting}
         error={createHardwareWalletRequest.error}
         onClose={this.onClose}

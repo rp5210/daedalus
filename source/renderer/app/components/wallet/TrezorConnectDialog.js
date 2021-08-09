@@ -33,7 +33,7 @@ type Props = {
   onExternalLinkClick: Function,
 };
 
-const WalletConnectDialog = ({
+const TrezorConnectDialog = ({
   error,
   hwDeviceStatus,
   intl,
@@ -116,4 +116,4 @@ const WalletConnectDialog = ({
   );
 };
 
-export default injectIntl(WalletConnectDialog);
+export default injectIntl(TrezorConnectDialog);
