@@ -373,7 +373,7 @@ export const CachedDeriveXpubFactory = (deriveXpubHardenedFn: Function) => {
   const deriveXpub = async (
     absDerivationPath: Array<number>,
     xpubHex: ?string
-  ) => {
+  ): Promise<string> => {
     if (xpubHex) xpubMemo = xpubHex;
     const memoKey = JSON.stringify(absDerivationPath);
     let derivedXpubsMemo = await derivedXpubs[memoKey];
@@ -390,7 +390,7 @@ export const CachedDeriveXpubFactory = (deriveXpubHardenedFn: Function) => {
      * the derivedXpubs map stores promises instead of direct results
      * to deal with concurrent requests to derive the same xpub
      */
-    return derivedXpubsMemo;
+    return derivedXpubsMemo.toString();
   };
 
   const deriveXpubNonhardenedFn = async (derivationPath) => {

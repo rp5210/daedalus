@@ -1822,7 +1822,7 @@ export default class HardwareWalletsStore extends Store {
   };
 
   _deriveXpub = CachedDeriveXpubFactory(async (xpubHex) => {
-    return Buffer.from(xpubHex, 'hex');
+    return Buffer.from(xpubHex, 'hex').toString();
   });
 
   _getRewardAccountAddress = async (walletId: string, path: Array<string>) => {
