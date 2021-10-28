@@ -12,13 +12,14 @@ import {
   logStateSnapshot,
   generateWalletMigrationReport,
 } from './utils/setupLogging';
-import { handleDiskSpace } from './utils/handleDiskSpace';
+import { handleCheckDiskSpace } from './utils/handleDiskSpace';
 import { handleCheckBlockReplayProgress } from './utils/handleCheckBlockReplayProgress';
 import { createMainWindow } from './windows/main';
 import { installChromeExtensions } from './utils/installChromeExtensions';
 import { environment } from './environment';
 import mainErrorHandler from './utils/mainErrorHandler';
 import {
+  DISK_SPACE_CHECK_LONG_INTERVAL,
   launcherConfig,
   pubLogsFolderPath,
   stateDirectoryPath,
@@ -48,12 +49,14 @@ import {
   restoreSavedWindowBounds,
   saveWindowBoundsOnSizeAndPositionChange,
 } from './windows/windowBounds';
+import { getDiskSpaceStatusChannel } from './ipc/get-disk-space-status';
+import type { CheckDiskSpaceResponse } from '../common/types/no-disk-space.types';
 
 /* eslint-disable consistent-return */
 
 // Global references to windows to prevent them from being garbage collected
 let mainWindow: BrowserWindow;
-let cardanoNode: ?CardanoNode;
+const cardanoNode: CardanoNode = setupCardanoNode(launcherConfig, mainWindow);
 
 const {
   isDev,
@@ -104,6 +107,57 @@ const safeExit = async () => {
       error,
     });
     safeExitWithCode(0);
+  }
+};
+
+const startCardanoNodeAndChecks = async () => {
+  logger.info('==========================> cardanoNode START =>');
+  try {
+    await cardanoNode?.start();
+
+    let diskSpaceCheckInterval;
+    let needToChangeInterval = false;
+    let response: CheckDiskSpaceResponse = {
+      isNotEnoughDiskSpace: false,
+      diskSpaceRequired: '',
+      diskSpaceMissing: '',
+      diskSpaceRecommended: '',
+      diskSpaceAvailable: '',
+      hadNotEnoughSpaceLeft: false,
+      interval: DISK_SPACE_CHECK_LONG_INTERVAL,
+    };
+
+    setInterval(async () => {
+      try {
+        const previousResponse = response;
+        logger.info('==========================> needToChangeInterval =>', {
+          needToChangeInterval,
+        });
+        if (!needToChangeInterval) {
+          diskSpaceCheckInterval = setInterval(async () => {
+            response = await handleCheckDiskSpace(
+              response,
+              cardanoNode,
+              mainWindow
+            );
+            needToChangeInterval =
+              response.interval !== previousResponse.interval;
+          }, response.interval);
+        } else {
+          clearInterval(diskSpaceCheckInterval);
+          needToChangeInterval = false;
+        }
+      } catch (error) {
+        logger.error(
+          'Error starting cardanoNode and running diskSpaceCheckInterval',
+          error
+        );
+        if (diskSpaceCheckInterval) clearInterval(diskSpaceCheckInterval);
+        await getDiskSpaceStatusChannel.send(response, mainWindow.webContents);
+      }
+    }, DISK_SPACE_CHECK_LONG_INTERVAL);
+  } catch (error) {
+    logger.error('=============> Error starting cardanoNode', error);
   }
 };
 
@@ -160,17 +214,30 @@ const onAppReady = async () => {
   );
   saveWindowBoundsOnSizeAndPositionChange(mainWindow, requestElectronStore);
 
-  cardanoNode = setupCardanoNode(launcherConfig, mainWindow);
+  await startCardanoNodeAndChecks();
 
-  const handleCheckDiskSpace = handleDiskSpace(mainWindow, cardanoNode);
-  const onMainError = (error: string) => {
+  const onMainError = async (error: string) => {
     if (error.indexOf('ENOSPC') > -1) {
-      handleCheckDiskSpace();
+      try {
+        await cardanoNode.start();
+        // await handleCheckDiskSpace(
+        //   false,
+        //   false,
+        //   DISK_SPACE_CHECK_LONG_INTERVAL,
+        //   cardanoNode,
+        //   mainWindow
+        // );
+      } catch (cardanoNodeError) {
+        logger.error(
+          'onMainError cannot start cardanoNode, handleCheckDiskSpace',
+          cardanoNodeError
+        );
+      }
       return false;
     }
   };
   mainErrorHandler(onMainError);
-  await handleCheckDiskSpace();
+  await startCardanoNodeAndChecks();
 
   await handleCheckBlockReplayProgress(mainWindow, launcherConfig.logsPrefix);
 
