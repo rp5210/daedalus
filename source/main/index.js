@@ -56,7 +56,7 @@ import type { CheckDiskSpaceResponse } from '../common/types/no-disk-space.types
 
 // Global references to windows to prevent them from being garbage collected
 let mainWindow: BrowserWindow;
-const cardanoNode: CardanoNode = setupCardanoNode(launcherConfig, mainWindow);
+let cardanoNode: CardanoNode;
 
 const {
   isDev,
@@ -113,6 +113,7 @@ const safeExit = async () => {
 const startCardanoNodeAndChecks = async () => {
   logger.info('==========================> cardanoNode START =>');
   try {
+    cardanoNode = setupCardanoNode(launcherConfig, mainWindow);
     await cardanoNode?.start();
 
     let diskSpaceCheckInterval;
@@ -135,6 +136,9 @@ const startCardanoNodeAndChecks = async () => {
         });
         if (!needToChangeInterval) {
           diskSpaceCheckInterval = setInterval(async () => {
+            logger.info(
+              '==========================> needToChangeInterval->diskSpaceCheckInterval =>'
+            );
             response = await handleCheckDiskSpace(
               response,
               cardanoNode,
