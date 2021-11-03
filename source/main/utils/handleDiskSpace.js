@@ -1,8 +1,5 @@
 // @flow
-import { BrowserWindow } from 'electron';
 import checkDiskSpace from 'check-disk-space';
-import prettysize from 'prettysize';
-import { getDiskSpaceStatusChannel } from '../ipc/get-disk-space-status';
 import { logger } from './logging';
 import {
   DISK_SPACE_REQUIRED,
@@ -13,57 +10,78 @@ import {
   DISK_SPACE_RECOMMENDED_PERCENTAGE,
   stateDirectoryPath,
 } from '../config';
-import { CardanoNodeStates } from '../../common/types/cardano-node.types';
+import type { CheckDiskSpaceReport } from '../../common/types/no-disk-space.types';
 import { CardanoNode } from '../cardano/CardanoNode';
-import type { CheckDiskSpaceResponse } from '../../common/types/no-disk-space.types';
+import { CardanoNodeStates } from '../../common/types/cardano-node.types';
+
+export const generateNewReport = (): CheckDiskSpaceReport => ({
+  isNotEnoughDiskSpace: false,
+  diskSpaceRequired: '',
+  diskSpaceMissing: '',
+  diskSpaceRecommended: '',
+  diskSpaceAvailable: '',
+  hadNotEnoughSpaceLeft: false,
+  needNewInterval: false,
+  interval: DISK_SPACE_CHECK_MEDIUM_INTERVAL,
+});
 
 export const handleCheckDiskSpace = async (
-  response: CheckDiskSpaceResponse,
-  cardanoNode: CardanoNode,
-  mainWindow: BrowserWindow,
+  previousReport?: CheckDiskSpaceReport,
   forceDiskSpaceRequired?: number
-): Promise<CheckDiskSpaceResponse> => {
-  const diskSpaceRequired = forceDiskSpaceRequired || DISK_SPACE_REQUIRED;
-  const {
-    free: diskSpaceAvailable,
-    size: diskTotalSpace,
-  } = await checkDiskSpace(stateDirectoryPath);
-  const diskSpaceMissing = Math.max(diskSpaceRequired - diskSpaceAvailable, 0);
-  const diskSpaceRecommended =
-    (diskTotalSpace * DISK_SPACE_RECOMMENDED_PERCENTAGE) / 100;
+): Promise<CheckDiskSpaceReport> => {
+  const report = previousReport || generateNewReport();
+  report.needNewInterval = false;
+  report.diskSpaceRequired = forceDiskSpaceRequired || DISK_SPACE_REQUIRED;
+  const { free, size } = await checkDiskSpace(stateDirectoryPath);
+
+  report.diskSpaceAvailable = free;
+  report.diskTotalSpace = size;
+  report.diskSpaceMissing = Math.max(
+    report.diskSpaceRequired - report.diskSpaceAvailable,
+    0
+  );
+  report.diskSpaceRecommended =
+    (report.diskTotalSpace * DISK_SPACE_RECOMMENDED_PERCENTAGE) / 100;
   const diskSpaceRequiredMargin =
-    diskSpaceRequired -
-    (diskSpaceRequired * DISK_SPACE_REQUIRED_MARGIN_PERCENTAGE) / 100;
+    report.diskSpaceRequired -
+    (report.diskSpaceRequired * DISK_SPACE_REQUIRED_MARGIN_PERCENTAGE) / 100;
 
-  response.diskSpaceRequired = prettysize(diskSpaceRequired);
-
-  if (diskSpaceAvailable <= diskSpaceRequiredMargin) {
-    if (!response.isNotEnoughDiskSpace) {
+  if (report.diskSpaceAvailable <= diskSpaceRequiredMargin) {
+    if (!report.isNotEnoughDiskSpace) {
       // State change: transitioning from enough to not-enough disk space
-      response.interval = DISK_SPACE_CHECK_SHORT_INTERVAL;
-      response.isNotEnoughDiskSpace = true;
+      report.interval = DISK_SPACE_CHECK_SHORT_INTERVAL;
+      report.needNewInterval = true;
+      report.isNotEnoughDiskSpace = true;
     }
-  } else if (diskSpaceAvailable >= diskSpaceRequired) {
+  } else if (report.diskSpaceAvailable >= report.diskSpaceRequired) {
     const newDiskSpaceCheckIntervalLength =
-      diskSpaceAvailable >= diskSpaceRequired * 2
+      report.diskSpaceAvailable >= report.diskSpaceRequired * 2
         ? DISK_SPACE_CHECK_LONG_INTERVAL
         : DISK_SPACE_CHECK_MEDIUM_INTERVAL;
-    if (response.isNotEnoughDiskSpace) {
+    if (report.isNotEnoughDiskSpace) {
       // State change: transitioning from not-enough to enough disk space
-      response.interval = newDiskSpaceCheckIntervalLength;
-      response.isNotEnoughDiskSpace = false;
-    } else if (newDiskSpaceCheckIntervalLength !== response.interval) {
+      report.interval = newDiskSpaceCheckIntervalLength;
+      report.needNewInterval = true;
+      report.isNotEnoughDiskSpace = false;
+    } else if (newDiskSpaceCheckIntervalLength !== report.interval) {
       // Interval change: transitioning from medium to long interval (or vice versa)
       // This is a special case in which we adjust the disk space check polling interval:
       // - more than 2x of available space than required: LONG interval
       // - less than 2x of available space than required: MEDIUM interval
-      response.interval = newDiskSpaceCheckIntervalLength;
+      report.interval = newDiskSpaceCheckIntervalLength;
+      report.needNewInterval = true;
     }
   }
+  return report;
+};
 
-  if (response.isNotEnoughDiskSpace) {
-    response.hadNotEnoughSpaceLeft = true;
-    logger.info('Not enough disk space', { response });
+export const handleCardanoNodeRestart = async (
+  report: CheckDiskSpaceReport,
+  cardanoNode: CardanoNode
+) => {
+  if (report.isNotEnoughDiskSpace) {
+    report.hadNotEnoughSpaceLeft = true;
+    logger.info('Not enough disk space', { report });
     if (
       cardanoNode.state !== CardanoNodeStates.STOPPING &&
       cardanoNode.state !== CardanoNodeStates.STOPPED
@@ -80,7 +98,7 @@ export const handleCheckDiskSpace = async (
       // Happens after the user made more disk space
       cardanoNode.state === CardanoNodeStates.STOPPED &&
       cardanoNode.state !== CardanoNodeStates.STOPPING &&
-      response.hadNotEnoughSpaceLeft
+      report.hadNotEnoughSpaceLeft
     ) {
       try {
         logger.info(
@@ -95,16 +113,6 @@ export const handleCheckDiskSpace = async (
         );
       }
     }
-    response.hadNotEnoughSpaceLeft = false;
+    report.hadNotEnoughSpaceLeft = false;
   }
-  await getDiskSpaceStatusChannel.send(
-    {
-      ...response,
-      diskSpaceMissing: prettysize(diskSpaceMissing),
-      diskSpaceRecommended: prettysize(diskSpaceRecommended),
-      diskSpaceAvailable: prettysize(diskSpaceAvailable),
-    },
-    mainWindow.webContents
-  );
-  return response;
 };

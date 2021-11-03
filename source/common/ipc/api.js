@@ -1,4 +1,5 @@
 // @flow
+import { underline } from 'chalk';
 import type {
   BugReportRequestHttpOptions,
   BugReportRequestPayload,
@@ -20,7 +21,7 @@ import type {
   FaultInjectionIpcRequest,
   TlsConfig,
 } from '../types/cardano-node.types';
-import type { CheckDiskSpaceResponse } from '../types/no-disk-space.types';
+import type { CheckDiskSpaceReport } from '../types/no-disk-space.types';
 import type { LogFiles } from '../../renderer/app/types/LogTypes';
 import type { GpuStatus } from '../../renderer/app/types/gpuStatus';
 import type { ExportedByronWallet } from '../../renderer/app/types/walletExportTypes';
@@ -111,8 +112,11 @@ export type ToggleUiPartRendererResponse = void;
  * Channel for checking the disk space available
  */
 export const GET_DISK_SPACE_STATUS_CHANNEL = 'GetDiskSpaceStatusChannel';
-export type GetDiskSpaceStatusRendererRequest = number | any;
-export type GetDiskSpaceStatusMainResponse = CheckDiskSpaceResponse;
+export type GetDiskSpaceStatusRendererRequest = {
+  report: CheckDiskSpaceReport | undefined,
+  forceDiskSpaceRequired: number | any,
+};
+export type GetDiskSpaceStatusMainResponse = CheckDiskSpaceReport;
 
 /**
  * Channel for checking the state directory path

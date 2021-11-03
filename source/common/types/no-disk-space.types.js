@@ -1,10 +1,11 @@
 // @flow
-export type CheckDiskSpaceResponse = {
+export type CheckDiskSpaceReport = {
   isNotEnoughDiskSpace: boolean,
-  diskSpaceRequired: string,
-  diskSpaceMissing: string,
-  diskSpaceRecommended: string,
-  diskSpaceAvailable: string,
+  diskSpaceRequired: number,
+  diskSpaceMissing: number,
+  diskSpaceRecommended: number,
+  diskSpaceAvailable: number,
   hadNotEnoughSpaceLeft: boolean,
+  needNewInterval: boolean,
   interval: number,
 };

@@ -4,6 +4,7 @@ import path from 'path';
 import { app, dialog, BrowserWindow, screen, shell } from 'electron';
 import { client } from 'electron-connect';
 import EventEmitter from 'events';
+import prettysize from 'prettysize';
 import { requestElectronStore } from './ipc/electronStoreConversation';
 import { logger } from './utils/logging';
 import {
@@ -12,14 +13,17 @@ import {
   logStateSnapshot,
   generateWalletMigrationReport,
 } from './utils/setupLogging';
-import { handleCheckDiskSpace } from './utils/handleDiskSpace';
+import {
+  generateNewReport,
+  handleCheckDiskSpace,
+  handleCardanoNodeRestart,
+} from './utils/handleDiskSpace';
 import { handleCheckBlockReplayProgress } from './utils/handleCheckBlockReplayProgress';
 import { createMainWindow } from './windows/main';
 import { installChromeExtensions } from './utils/installChromeExtensions';
 import { environment } from './environment';
 import mainErrorHandler from './utils/mainErrorHandler';
 import {
-  DISK_SPACE_CHECK_LONG_INTERVAL,
   launcherConfig,
   pubLogsFolderPath,
   stateDirectoryPath,
@@ -49,14 +53,18 @@ import {
   restoreSavedWindowBounds,
   saveWindowBoundsOnSizeAndPositionChange,
 } from './windows/windowBounds';
+
 import { getDiskSpaceStatusChannel } from './ipc/get-disk-space-status';
-import type { CheckDiskSpaceResponse } from '../common/types/no-disk-space.types';
 
 /* eslint-disable consistent-return */
 
 // Global references to windows to prevent them from being garbage collected
 let mainWindow: BrowserWindow;
 let cardanoNode: CardanoNode;
+type Timeout = {
+  _destroyed: boolean,
+};
+let daedalusChecksInterval: Timeout | isUndefined;
 
 const {
   isDev,
@@ -110,58 +118,98 @@ const safeExit = async () => {
   }
 };
 
+/*
+  This function start Cardano Node and start two intervals.
+  The Main interval is a general one that can modify the timer of the child interval
+  The Child interval check the disk space
+ */
 const startCardanoNodeAndChecks = async () => {
-  logger.info('==========================> cardanoNode START =>');
+  console.log('==========================> startCardanoNodeAndChecks =>');
   try {
     cardanoNode = setupCardanoNode(launcherConfig, mainWindow);
     await cardanoNode?.start();
+    console.log('=> cardanoNode started');
 
     let diskSpaceCheckInterval;
     let needToChangeInterval = false;
-    let response: CheckDiskSpaceResponse = {
-      isNotEnoughDiskSpace: false,
-      diskSpaceRequired: '',
-      diskSpaceMissing: '',
-      diskSpaceRecommended: '',
-      diskSpaceAvailable: '',
-      hadNotEnoughSpaceLeft: false,
-      interval: DISK_SPACE_CHECK_LONG_INTERVAL,
-    };
 
-    setInterval(async () => {
-      try {
-        const previousResponse = response;
-        logger.info('==========================> needToChangeInterval =>', {
-          needToChangeInterval,
-        });
-        if (!needToChangeInterval) {
-          diskSpaceCheckInterval = setInterval(async () => {
-            logger.info(
-              '==========================> needToChangeInterval->diskSpaceCheckInterval =>'
+    let report = generateNewReport();
+    console.log('=> daedalusChecksInterval', daedalusChecksInterval);
+    getDiskSpaceStatusChannel.onReceive(handleCheckDiskSpace);
+
+    // Avoid to create a new interval
+    const shouldCreateNewCheckInterval =
+      !daedalusChecksInterval || daedalusChecksInterval._destroyed;
+
+    daedalusChecksInterval = shouldCreateNewCheckInterval
+      ? setInterval(async () => {
+          console.log('===> needToChangeInterval =>', needToChangeInterval);
+
+          // Avoid to create a new disk-space-check if there is no need.
+          const shouldCreateNewDiskCheckInterval =
+            !diskSpaceCheckInterval ||
+            diskSpaceCheckInterval._destroyed ||
+            needToChangeInterval;
+
+          if (shouldCreateNewDiskCheckInterval) {
+            clearInterval(diskSpaceCheckInterval);
+            needToChangeInterval = await new Promise(
+              (resolve, reject): Promise<void> => {
+                try {
+                  diskSpaceCheckInterval = setInterval(async () => {
+                    console.log(
+                      '------------> needToChangeInterval->diskSpaceCheckInterval =>',
+                      diskSpaceCheckInterval._destroyed
+                    );
+                    report = await handleCheckDiskSpace(
+                      report,
+                      cardanoNode,
+                      mainWindow
+                    );
+
+                    if (
+                      getDiskSpaceStatusChannel &&
+                      getDiskSpaceStatusChannel.send
+                    )
+                      await getDiskSpaceStatusChannel?.send({
+                        report,
+                      });
+
+                    if (report.isNotEnoughDiskSpace) {
+                      console.log(
+                        '------------> handleCardanoNodeRestart => isNotEnoughDiskSpace =>',
+                        report.isNotEnoughDiskSpace
+                      );
+                      await handleCardanoNodeRestart(report, cardanoNode);
+                    }
+
+                    if (report.needNewInterval) {
+                      await handleCardanoNodeRestart(report, cardanoNode);
+                      clearInterval(diskSpaceCheckInterval);
+                      resolve(true);
+                    }
+                  }, report.interval);
+                } catch (diskCheckError) {
+                  console.error(
+                    'Error calling handleCheckDiskSpace',
+                    diskCheckError
+                  );
+                  clearInterval(diskSpaceCheckInterval);
+                  needToChangeInterval = false;
+                  reject();
+                }
+              }
+            ).catch((diskIntervalError) =>
+              console.error(
+                'Error calling handleCheckDiskInterval',
+                diskIntervalError
+              )
             );
-            response = await handleCheckDiskSpace(
-              response,
-              cardanoNode,
-              mainWindow
-            );
-            needToChangeInterval =
-              response.interval !== previousResponse.interval;
-          }, response.interval);
-        } else {
-          clearInterval(diskSpaceCheckInterval);
-          needToChangeInterval = false;
-        }
-      } catch (error) {
-        logger.error(
-          'Error starting cardanoNode and running diskSpaceCheckInterval',
-          error
-        );
-        if (diskSpaceCheckInterval) clearInterval(diskSpaceCheckInterval);
-        await getDiskSpaceStatusChannel.send(response, mainWindow.webContents);
-      }
-    }, DISK_SPACE_CHECK_LONG_INTERVAL);
+          }
+        }, 10000)
+      : undefined;
   } catch (error) {
-    logger.error('=============> Error starting cardanoNode', error);
+    console.error('=============> Error starting cardanoNode', error);
   }
 };
 
@@ -217,8 +265,6 @@ const onAppReady = async () => {
     restoreSavedWindowBounds(screen, requestElectronStore)
   );
   saveWindowBoundsOnSizeAndPositionChange(mainWindow, requestElectronStore);
-
-  await startCardanoNodeAndChecks();
 
   const onMainError = async (error: string) => {
     if (error.indexOf('ENOSPC') > -1) {

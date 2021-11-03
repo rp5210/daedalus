@@ -2,6 +2,7 @@
 import { observable, action, computed, runInAction } from 'mobx';
 import moment from 'moment';
 import { isEqual, includes, get } from 'lodash';
+import prettysize from 'prettysize';
 import Store from './lib/Store';
 import Request from './lib/LocalizedRequest';
 import {
@@ -37,7 +38,7 @@ import type {
   CardanoStatus,
   TlsConfig,
 } from '../../../common/types/cardano-node.types';
-import type { CheckDiskSpaceResponse } from '../../../common/types/no-disk-space.types';
+import type { CheckDiskSpaceReport } from '../../../common/types/no-disk-space.types';
 import { TlsCertificateNotValidError } from '../api/nodes/errors';
 import { openLocalDirectoryChannel } from '../ipc/open-local-directory';
 
@@ -239,7 +240,7 @@ export default class NetworkStatusStore extends Store {
   }
 
   _checkDiskSpace(diskSpaceRequired?: number) {
-    getDiskSpaceStatusChannel.send(diskSpaceRequired);
+    getDiskSpaceStatusChannel.send({ report: undefined, diskSpaceRequired });
   }
 
   _getStateDirectoryPath = async () => {
@@ -682,12 +683,12 @@ export default class NetworkStatusStore extends Store {
     diskSpaceMissing,
     diskSpaceRecommended,
     diskSpaceAvailable,
-  }: CheckDiskSpaceResponse): Promise<void> => {
+  }: CheckDiskSpaceReport): Promise<void> => {
     this.isNotEnoughDiskSpace = isNotEnoughDiskSpace;
-    this.diskSpaceRequired = diskSpaceRequired;
-    this.diskSpaceMissing = diskSpaceMissing;
-    this.diskSpaceRecommended = diskSpaceRecommended;
-    this.diskSpaceAvailable = diskSpaceAvailable;
+    this.diskSpaceRequired = prettysize(diskSpaceRequired);
+    this.diskSpaceMissing = prettysize(diskSpaceMissing);
+    this.diskSpaceRecommended = prettysize(diskSpaceRecommended);
+    this.diskSpaceAvailable = prettysize(diskSpaceAvailable);
 
     if (this.isNotEnoughDiskSpace) {
       if (this._networkStatusPollingInterval) {
