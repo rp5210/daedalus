@@ -25,6 +25,18 @@ export const SMASH_SERVERS_LIST: {
     name: 'direct',
     url: 'direct',
   },
+  xspo: {
+    name: 'xspo',
+    url: 'https://xspo.panl.org',
+  },
+  xspo: {
+    name: 'cspa',
+    url: 'https://smash.panl.org',
+  },
+  cmdp: {
+    name: 'cmdp',
+    url: 'https://cmdp.panl.org',
+  },
 };
 
 export const SMASH_SERVER_TYPES: {
