@@ -33,6 +33,9 @@ export const SMASH_SERVER_TYPES: {
   IOHK: 'iohk',
   CUSTOM: 'custom',
   DIRECT: 'direct',
+  xSPO: 'xspo',
+  CSPA: 'cspa',
+  CMDP: 'cmdp',
 };
 
 export const SMASH_SERVER_INVALID_TYPES: {
